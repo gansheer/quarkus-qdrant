@@ -1,0 +1,30 @@
+package io.quarkiverse.qdrant.deployment.devui;
+
+import io.quarkiverse.qdrant.runtime.devui.QdrantDevUIService;
+import io.quarkus.deployment.IsDevelopment;
+import io.quarkus.deployment.annotations.BuildStep;
+import io.quarkus.deployment.annotations.BuildSteps;
+import io.quarkus.devui.spi.JsonRPCProvidersBuildItem;
+import io.quarkus.devui.spi.page.CardPageBuildItem;
+import io.quarkus.devui.spi.page.Page;
+
+@BuildSteps(onlyIf = IsDevelopment.class)
+public class QdrantDevUIProcessor {
+
+    @BuildStep
+    CardPageBuildItem createCard() {
+        CardPageBuildItem card = new CardPageBuildItem();
+
+        card.addPage(Page.externalPageBuilder("Qdrant Dashboard")
+                .dynamicUrlJsonRPCMethodName("getDashboardLink")
+                .doNotEmbed()
+                .icon("font-awesome-solid:database"));
+
+        return card;
+    }
+
+    @BuildStep
+    JsonRPCProvidersBuildItem createJsonRPCService() {
+        return new JsonRPCProvidersBuildItem(QdrantDevUIService.class);
+    }
+}
