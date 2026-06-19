@@ -28,9 +28,12 @@ public class DeleteBuilder {
     }
 
     public void execute() {
+        if (ids == null && filter == null) {
+            throw new QdrantException("Delete requires either point IDs or a filter");
+        }
         if (ids != null) {
             client.delete(collection, DeleteRequest.byIds(ids));
-        } else if (filter != null) {
+        } else {
             client.delete(collection, DeleteRequest.byFilter(filter));
         }
     }
