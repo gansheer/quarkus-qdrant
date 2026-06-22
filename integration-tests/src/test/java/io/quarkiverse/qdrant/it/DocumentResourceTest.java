@@ -36,7 +36,7 @@ public class DocumentResourceTest {
     @Order(2)
     void testGetCollectionInfo() {
         CollectionInfo info = given()
-                .when().get("/documents/collections/documents")
+                .when().get("/admin/collections/documents")
                 .then()
                 .statusCode(200)
                 .extract().as(CollectionInfo.class);
@@ -56,7 +56,7 @@ public class DocumentResourceTest {
     @Order(3)
     void testNamedClientListCollections() {
         List<String> collections = List.of(given()
-                .when().get("/named-client/collections")
+                .when().get("/admin/collections")
                 .then()
                 .statusCode(200)
                 .extract().as(String[].class));
@@ -70,7 +70,7 @@ public class DocumentResourceTest {
     @Order(4)
     void testListCollections() {
         List<String> collections = List.of(given()
-                .when().get("/documents/collections")
+                .when().get("/admin/collections")
                 .then()
                 .statusCode(200)
                 .extract().as(String[].class));
@@ -126,12 +126,12 @@ public class DocumentResourceTest {
     @Order(6)
     void testDeleteCollectionAndVerify() {
         given()
-                .when().delete("/documents/collections/documents")
+                .when().delete("/admin/collections/documents")
                 .then()
                 .statusCode(204);
 
         List<String> collections = List.of(given()
-                .when().get("/documents/collections")
+                .when().get("/admin/collections")
                 .then()
                 .statusCode(200)
                 .extract().as(String[].class));
@@ -140,5 +140,59 @@ public class DocumentResourceTest {
                 .as("After deletion, only 'products' collection should remain")
                 .contains("products")
                 .doesNotContain("documents");
+
+    }
+
+    @Test
+    @Order(7)
+    void testCreateCollectionLifecycle() {
+        given()
+                .queryParam("vectorSize", 4)
+                .queryParam("distance", "Cosine")
+                .when().put("/admin/collections/lifecycle-test")
+                .then()
+                .statusCode(201);
+
+        List<String> collections = List.of(given()
+                .when().get("/admin/collections")
+                .then()
+                .statusCode(200)
+                .extract().as(String[].class));
+
+        assertThat(collections)
+                .as("Newly created collection should be listed")
+                .contains("lifecycle-test");
+
+        given()
+                .queryParam("vectorSize", 4)
+                .queryParam("distance", "Cosine")
+                .when().put("/admin/collections/lifecycle-test")
+                .then()
+                .statusCode(409);
+
+        given()
+                .when().delete("/admin/collections/lifecycle-test")
+                .then()
+                .statusCode(204);
+
+        collections = List.of(given()
+                .when().get("/admin/collections")
+                .then()
+                .statusCode(200)
+                .extract().as(String[].class));
+
+        assertThat(collections)
+                .as("Deleted collection should no longer be listed")
+                .doesNotContain("lifecycle-test");
+
+        given()
+                .when().get("/admin/collections/documents")
+                .then()
+                .statusCode(404);
+
+        given()
+                .when().get("/admin/collections/lifecycle-test")
+                .then()
+                .statusCode(404);
     }
 }
