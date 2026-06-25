@@ -15,9 +15,9 @@ public class QdrantDevUIService {
 
     @NonBlocking
     public String getDashboardLink() {
-        for (Instance.Handle<QdrantClient> handle : clients.handles()) {
-            return handle.get().getBaseUri().toString() + "/dashboard";
-        }
-        return "";
+        return clients.stream()
+                .findFirst()
+                .map(c -> c.getBaseUri().toString() + "/dashboard")
+                .orElse("");
     }
 }
