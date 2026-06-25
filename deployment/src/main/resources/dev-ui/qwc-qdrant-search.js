@@ -12,7 +12,7 @@ import '@vaadin/progress-bar';
 
 export class QwcQdrantSearch extends QwcHotReloadElement {
 
-    jsonRpc = new JsonRpc(this);
+    jsonRpc = new JsonRpc('quarkus-qdrant');
 
     static styles = css`
         :host {
@@ -39,6 +39,8 @@ export class QwcQdrantSearch extends QwcHotReloadElement {
     `;
 
     static properties = {
+        _clients: {state: true},
+        _selectedClient: {state: true},
         _collections: {state: true},
         _selectedCollection: {state: true},
         _vectorCsv: {state: true},
@@ -50,6 +52,8 @@ export class QwcQdrantSearch extends QwcHotReloadElement {
 
     constructor() {
         super();
+        this._clients = [];
+        this._selectedClient = 'default';
         this._collections = [];
         this._selectedCollection = '';
         this._vectorCsv = '';
@@ -71,6 +75,14 @@ export class QwcQdrantSearch extends QwcHotReloadElement {
 
         return html`
             <div class="search-form">
+                ${this._clients.length > 1 ? html`
+                    <vaadin-select
+                        label="Client"
+                        .items="${this._clients}"
+                        .value="${this._selectedClient}"
+                        @value-changed="${e => { this._selectedClient = e.detail.value; this._reloadCollections(); }}">
+                    </vaadin-select>
+                ` : ''}
                 <vaadin-select
                     label="Collection"
                     .items="${this._collections.map(c => ({label: c.name, value: c.name}))}"
@@ -124,16 +136,48 @@ export class QwcQdrantSearch extends QwcHotReloadElement {
 
     hotReload() {
         this._loading = true;
-        this.jsonRpc.listCollections().then(response => {
-            const result = response.result;
-            this._collections = Array.isArray(result) ? result : [];
-            if (this._collections.length > 0 && !this._selectedCollection) {
+
+        const loadCollections = () => {
+            this.jsonRpc.listCollections({clientName: this._selectedClient}).then(response => {
+                this._collections = Array.isArray(response.result) ? response.result : [];
+                if (this._collections.length > 0 && !this._selectedCollection) {
+                    this._selectedCollection = this._collections[0].name;
+                }
+                this._loading = false;
+            }, () => {
+                notifier.showErrorMessage('Failed to load collections', 'top-end');
+                this._loading = false;
+            });
+        };
+
+        const clientsPromise = this.jsonRpc.listClients();
+        if (!clientsPromise) {
+            loadCollections();
+            return;
+        }
+
+        clientsPromise.then(response => {
+            const clientList = Array.isArray(response.result) ? response.result : ['default'];
+            this._clients = clientList.map(c => ({label: c, value: c}));
+            if (!this._selectedClient || !clientList.includes(this._selectedClient)) {
+                this._selectedClient = clientList[0] || 'default';
+            }
+            loadCollections();
+        }, () => {
+            loadCollections();
+        });
+    }
+
+    _reloadCollections() {
+        this._selectedCollection = '';
+        this._results = [];
+        this.jsonRpc.listCollections({clientName: this._selectedClient}).then(response => {
+            this._collections = Array.isArray(response.result) ? response.result : [];
+            if (this._collections.length > 0) {
                 this._selectedCollection = this._collections[0].name;
             }
-            this._loading = false;
-        }, () => {
-            notifier.showErrorMessage('Failed to list collections', 'top-end');
-            this._loading = false;
+        }).catch(() => {
+            notifier.showErrorMessage('Failed to load collections', 'top-end');
         });
     }
 
@@ -142,6 +186,7 @@ export class QwcQdrantSearch extends QwcHotReloadElement {
 
         this._searching = true;
         this.jsonRpc.search({
+            clientName: this._selectedClient,
             collection: this._selectedCollection,
             vectorCsv: this._vectorCsv.trim(),
             limit: this._limit || 10
@@ -153,6 +198,11 @@ export class QwcQdrantSearch extends QwcHotReloadElement {
             } else {
                 this._results = result.data || [];
             }
+            this._searching = false;
+        }, error => {
+            const detail = error?.error?.message || 'Unknown error';
+            notifier.showErrorMessage(`Search failed: ${detail}`, 'top-end');
+            this._results = [];
             this._searching = false;
         });
     }

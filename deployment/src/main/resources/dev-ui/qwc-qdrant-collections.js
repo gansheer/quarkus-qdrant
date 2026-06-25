@@ -12,7 +12,7 @@ import '@vaadin/progress-bar';
 
 export class QwcQdrantCollections extends QwcHotReloadElement {
 
-    jsonRpc = new JsonRpc(this);
+    jsonRpc = new JsonRpc('quarkus-qdrant');
 
     static styles = css`
         :host {
@@ -39,6 +39,8 @@ export class QwcQdrantCollections extends QwcHotReloadElement {
     `;
 
     static properties = {
+        _clients: {state: true},
+        _selectedClient: {state: true},
         _collections: {state: true},
         _loading: {state: true},
         _newName: {state: true},
@@ -49,6 +51,8 @@ export class QwcQdrantCollections extends QwcHotReloadElement {
 
     constructor() {
         super();
+        this._clients = [];
+        this._selectedClient = 'default';
         this._collections = [];
         this._loading = true;
         this._newName = '';
@@ -82,6 +86,14 @@ export class QwcQdrantCollections extends QwcHotReloadElement {
         return html`
             <div class="toolbar">
                 <div class="create-form">
+                    ${this._clients.length > 1 ? html`
+                        <vaadin-select
+                            label="Client"
+                            .items="${this._clients}"
+                            .value="${this._selectedClient}"
+                            @value-changed="${e => { if (e.detail.value && e.detail.value !== this._selectedClient) { this._selectedClient = e.detail.value; this._reloadCollections(); } }}">
+                        </vaadin-select>
+                    ` : ''}
                     <vaadin-text-field
                         label="Collection name"
                         .value="${this._newName}"
@@ -111,7 +123,7 @@ export class QwcQdrantCollections extends QwcHotReloadElement {
                         <vaadin-icon icon="font-awesome-solid:arrows-rotate"></vaadin-icon>
                     </vaadin-button>
                     <vaadin-button theme="icon tertiary" title="${this._isWatching ? 'Stop watching' : 'Start watching'}"
-                        @click="${this._isWatching ? this._unwatch : this._watch}">
+                        @click="${() => this._isWatching ? this._unwatch() : this._watch()}">
                         <vaadin-icon icon="font-awesome-solid:${this._isWatching ? 'eye' : 'eye-slash'}"></vaadin-icon>
                     </vaadin-button>
                 </div>
@@ -140,18 +152,43 @@ export class QwcQdrantCollections extends QwcHotReloadElement {
 
     hotReload() {
         this._loading = true;
-        this.jsonRpc.listCollections().then(response => {
-            const result = response.result;
-            if (Array.isArray(result)) {
-                this._collections = result;
-            } else {
-                this._collections = [];
+
+        const loadCollections = () => {
+            this.jsonRpc.listCollections({clientName: this._selectedClient}).then(response => {
+                this._collections = Array.isArray(response.result) ? response.result : [];
+                this._loading = false;
+            }, error => {
+                const detail = error?.error?.message || 'Unknown error';
+                notifier.showErrorMessage(`Failed to list collections: ${detail}`, 'top-end');
+                this._loading = false;
+            });
+        };
+
+        const clientsPromise = this.jsonRpc.listClients();
+        if (!clientsPromise) {
+            loadCollections();
+            return;
+        }
+
+        clientsPromise.then(response => {
+            const clientList = Array.isArray(response.result) ? response.result : ['default'];
+            this._clients = clientList.map(c => ({label: c, value: c}));
+            if (!this._selectedClient || !clientList.includes(this._selectedClient)) {
+                this._selectedClient = clientList[0] || 'default';
             }
-            this._loading = false;
-        }, (error) => {
+            loadCollections();
+        }, () => {
+            if (!this._selectedClient) this._selectedClient = 'default';
+            loadCollections();
+        });
+    }
+
+    _reloadCollections() {
+        this.jsonRpc.listCollections({clientName: this._selectedClient}).then(response => {
+            this._collections = Array.isArray(response.result) ? response.result : [];
+        }, error => {
             const detail = error?.error?.message || 'Unknown error';
             notifier.showErrorMessage(`Failed to list collections: ${detail}`, 'top-end');
-            this._loading = false;
         });
     }
 
@@ -160,6 +197,7 @@ export class QwcQdrantCollections extends QwcHotReloadElement {
         if (!name) return;
 
         this.jsonRpc.createCollection({
+            clientName: this._selectedClient,
             name: name,
             vectorSize: this._newVectorSize,
             distance: this._newDistance
@@ -172,6 +210,9 @@ export class QwcQdrantCollections extends QwcHotReloadElement {
                 this._newName = '';
                 this.hotReload();
             }
+        }, error => {
+            const detail = error?.error?.message || 'Unknown error';
+            notifier.showErrorMessage(`Failed to create collection: ${detail}`, 'top-end');
         });
     }
 
@@ -189,7 +230,7 @@ export class QwcQdrantCollections extends QwcHotReloadElement {
     }
 
     _delete(name) {
-        this.jsonRpc.deleteCollection({name: name}).then(response => {
+        this.jsonRpc.deleteCollection({clientName: this._selectedClient, name: name}).then(response => {
             const result = response.result;
             if (result.error) {
                 notifier.showErrorMessage(result.error, 'top-end');
@@ -197,6 +238,9 @@ export class QwcQdrantCollections extends QwcHotReloadElement {
                 notifier.showInfoMessage(result.message, 'top-end');
                 this.hotReload();
             }
+        }, error => {
+            const detail = error?.error?.message || 'Unknown error';
+            notifier.showErrorMessage(`Failed to delete collection: ${detail}`, 'top-end');
         });
     }
 }

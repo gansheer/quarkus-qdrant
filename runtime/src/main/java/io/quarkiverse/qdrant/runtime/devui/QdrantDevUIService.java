@@ -1,22 +1,37 @@
 package io.quarkiverse.qdrant.runtime.devui;
 
+import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Default;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 
 import io.quarkiverse.qdrant.runtime.QdrantClient;
+import io.quarkiverse.qdrant.runtime.QdrantClientName;
 import io.quarkiverse.qdrant.runtime.model.CollectionInfo;
 import io.quarkiverse.qdrant.runtime.model.ScoredPoint;
 
 public class QdrantDevUIService {
 
+    @Any
     @Inject
-    QdrantClient qdrant;
+    Instance<QdrantClient> clients;
 
-    public List<Map<String, Object>> listCollections() {
+    public List<String> listClients() {
+        List<String> names = new ArrayList<>();
+        for (Instance.Handle<QdrantClient> handle : clients.handles()) {
+            names.add(clientNameOf(handle));
+        }
+        return names;
+    }
+
+    public List<Map<String, Object>> listCollections(String clientName) {
+        QdrantClient qdrant = resolve(clientName);
         List<String> names = qdrant.listCollections();
         List<Map<String, Object>> result = new ArrayList<>();
         for (String name : names) {
@@ -37,7 +52,7 @@ public class QdrantDevUIService {
         return result;
     }
 
-    public Map<String, Object> createCollection(String name, Integer vectorSize, String distance) {
+    public Map<String, Object> createCollection(String clientName, String name, Integer vectorSize, String distance) {
         if (name == null || name.isBlank()) {
             return Map.of("error", "Collection name is required");
         }
@@ -45,23 +60,23 @@ public class QdrantDevUIService {
             return Map.of("error", "Vector size must be a positive integer");
         }
         try {
-            qdrant.createCollection(name).vectorSize(vectorSize).distance(distance).execute();
+            resolve(clientName).createCollection(name).vectorSize(vectorSize).distance(distance).execute();
             return Map.of("message", "Collection \"" + name + "\" created");
         } catch (Exception e) {
             return Map.of("error", "Failed to create collection \"" + name + "\": " + e.getMessage());
         }
     }
 
-    public Map<String, Object> deleteCollection(String name) {
+    public Map<String, Object> deleteCollection(String clientName, String name) {
         try {
-            qdrant.deleteCollection(name);
+            resolve(clientName).deleteCollection(name);
             return Map.of("message", "Collection \"" + name + "\" deleted");
         } catch (Exception e) {
             return Map.of("error", "Failed to delete collection \"" + name + "\": " + e.getMessage());
         }
     }
 
-    public Map<String, Object> search(String collection, String vectorCsv, int limit) {
+    public Map<String, Object> search(String clientName, String collection, String vectorCsv, int limit) {
         if (collection == null || collection.isBlank() || vectorCsv == null || vectorCsv.isBlank()) {
             return Map.of("data", List.of(), "error", "Collection and vector are required");
         }
@@ -79,7 +94,7 @@ public class QdrantDevUIService {
         }
 
         try {
-            List<ScoredPoint> results = qdrant.search(collection)
+            List<ScoredPoint> results = resolve(clientName).search(collection)
                     .vector(vec)
                     .limit(limit > 0 ? limit : 10)
                     .withPayload(true)
@@ -97,8 +112,23 @@ public class QdrantDevUIService {
             }
             return Map.of("data", data);
         } catch (Exception e) {
-            return Map.of("data", List.of(),
-                    "error", "Search failed: vector dimension may not match the collection's vector size");
+            return Map.of("data", List.of(), "error", "Search failed: " + e.getMessage());
         }
+    }
+
+    private QdrantClient resolve(String name) {
+        if (name == null || name.equals("default")) {
+            return clients.select(Default.Literal.INSTANCE).get();
+        }
+        return clients.select(QdrantClientName.Literal.of(name)).get();
+    }
+
+    private static String clientNameOf(Instance.Handle<QdrantClient> handle) {
+        for (Annotation qualifier : handle.getBean().getQualifiers()) {
+            if (qualifier instanceof QdrantClientName qcn) {
+                return qcn.value();
+            }
+        }
+        return "default";
     }
 }
