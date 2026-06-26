@@ -5,7 +5,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 
 import io.quarkiverse.qdrant.runtime.QdrantClient;
-import io.smallrye.common.annotation.NonBlocking;
 
 public class QdrantDevUIService {
 
@@ -13,7 +12,6 @@ public class QdrantDevUIService {
     @Inject
     Instance<QdrantClient> clients;
 
-    @NonBlocking
     public String getDashboardLink() {
         return clients.stream()
                 .findFirst()
